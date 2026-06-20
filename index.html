@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no" />
+    <title>NHPC AI Bot - Serverless Panel</title>
+    
+    <!-- Mount the Stlite styling and script distributions directly via CDN -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@stlite/mountable@0.63.1/build/stlite.css" />
+  </head>
+  <body>
+    <!-- The targeted anchor point where your dashboard UI draws -->
+    <div id="root"></div>
+
+    <script src="https://cdn.jsdelivr.net/npm/@stlite/mountable@0.63.1/build/stlite.js"></script>
+    <script>
+      stlite.mount(
+        {
+          // Instructs the Pyodide WebAssembly runtime to download and mount the requirements inside the client sandbox
+          requirements: ["pandas", "ta", "numpy"],
+          entrypoint: "streamlit_app.py",
+          files: {
+            "streamlit_app.py": `
+import streamlit as st
+import pandas as pd
+import numpy as np
+import ta
+import time
+
+# Custom Dark Neon UI Stylings
+st.set_page_config(page_title="NHPC AI Bot - Browser Only", page_icon="⚡", layout="centered")
+st.markdown("""
+    <style>
+        .stApp { background-color: #050b14; color: #ffffff; }
+        .metric-card {
+            background-color: #0d1b2a;
+            border-radius: 10px;
+            padding: 20px;
+            border: 2px solid #00FF66;
+            text-align: center;
+            margin-bottom: 20px;
+        }
+        .metric-card.bearish { border-color: #FF3333; }
+        h1, h2, h3 { font-family: 'Arial Black', sans-serif; }
+    </style>
+""", unsafe_allow_html=True)
+
+# Math Data Loop Generation Engine
+def get_mock_candle():
+    np.random.seed(int(time.time()))
+    prices = [75.80]
+    for _ in range(50):
+        prices.append(prices[-1] + np.random.uniform(-0.5, 0.5))
+    df = pd.DataFrame({'close': prices})
+    
+    df['ema_fast'] = ta.trend.ema_indicator(df['close'], window=9)
+    df['ema_slow'] = ta.trend.ema_indicator(df['close'], window=21)
+    df['rsi'] = ta.momentum.rsi(df['close'], window=14)
+    macd = ta.trend.MACD(df['close'])
+    df['macd_line'] = macd.macd()
+    df['signal_line'] = macd.macd_signal()
+    return df.dropna().tail(1).iloc[0]
+
+st.title("⚡ NHPC SERVERLESS AI BOT")
+st.caption("Running entirely in your browser client using WebAssembly (Wasm)")
+
+signal_spot = st.empty()
+metrics_spot = st.empty()
+chart_spot = st.empty()
+
+if 'history' not in st.session_state:
+    st.session_state['history'] = [75.80]
+
+# UI loop rendering execution blocks
+tick = get_mock_candle()
+ltp = round(tick['close'], 2)
+st.session_state['history'].append(ltp)
+
+if len(st.session_state['history']) > 25:
+    st.session_state['history'].pop(0)
+
+is_bull = (tick['ema_fast'] > tick['ema_slow']) and (tick['rsi'] > 50) and (tick['macd_line'] > tick['signal_line'])
+is_bear = (tick['ema_fast'] < tick['ema_slow']) and (tick['rsi'] < 50) and (tick['macd_line'] < tick['signal_line'])
+state = "BULLISH" if is_bull else ("BEARISH" if is_bear else "NEUTRAL / HOLD")
+
+color = "#00FF66" if state == "BULLISH" else ("#FF3333" if state == "BEARISH" else "#E5E5E5")
+card_type = "metric-card" if state != "BEARISH" else "metric-card bearish"
+
+target = round(ltp * 1.02, 2) if state == "BULLISH" else (round(ltp * 0.98, 2) if state == "BEARISH" else "N/A")
+stoploss = round(ltp * 0.99, 2) if state == "BULLISH" else (round(ltp * 1.01, 2) if state == "BEARISH" else "N/A")
+
+signal_spot.markdown(f"""
+    <div class="{card_type}">
+        <h3 style='margin:0; color:#8b9bb4;'>NHPC BOT RADAR</h3>
+        <h1 style='margin:10px 0; color:{color}; font-size:32px;'>{state} TRIGGER</h1>
+        <h2 style='margin:0; font-size:42px; color:#ffffff;'>₹{ltp}</h2>
+    </div>
+""", unsafe_allow_html=True)
+
+with metrics_spot.container():
+    c1, c2 = st.columns(2)
+    c1.metric("TARGET (2%)", f"₹{target}")
+    c1.metric("RSI (14)", f"{round(tick['rsi'], 2)}")
+    c2.metric("STOP LOSS (1%)", f"₹{stoploss}")
+    c2.metric("EMA 9 vs 21", f"{round(tick['ema_fast'],2)} / {round(tick['ema_slow'],2)}")
+
+chart_spot.line_chart(st.session_state['history'])
+
+# Auto rerun fallback for browser client loop handling
+time.sleep(2.0)
+st.rerun()
+            `
+          }
+        },
+        document.getElementById("root")
+      );
+    </script>
+  </body>
+</html>
